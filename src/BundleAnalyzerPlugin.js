@@ -32,15 +32,17 @@ class BundleAnalyzerPlugin {
 
   apply(compiler) {
     this.compiler = compiler;
-
-    const done = (stats, callback) => {
+    const emit = (compiler, callback) => {
       callback = callback || (() => {});
-      stats = stats.toJson(this.opts.statsOptions);
+      const stats = compiler.getStats().toJson(this.opts.statsOptions);
+      const analyzerOpts = {logger: this.logger, excludeAssets: this.opts.excludeAssets};
+
+      const chartData = JSON.stringify(viewer.getChartData(analyzerOpts, stats, this.getBundleDirFromCompiler()));
 
       const actions = [];
 
       if (this.opts.generateStatsFile) {
-        actions.push(() => this.generateStatsFile(stats));
+        actions.push(() => this.generateStatsFile(compiler, chartData));
       }
 
       // Handling deprecated `startAnalyzer` flag
@@ -70,25 +72,35 @@ class BundleAnalyzerPlugin {
     };
 
     if (compiler.hooks) {
-      compiler.hooks.done.tapAsync('webpack-bundle-analyzer', done);
+      compiler.hooks.emit.tapAsync('webpack-bundle-analyzer', emit);
     } else {
-      compiler.plugin('done', done);
+      compiler.plugin('emit', emit);
     }
   }
 
-  async generateStatsFile(stats) {
+  async generateStatsFile(curCompiler, stats) {
     const statsFilepath = path.resolve(this.compiler.outputPath, this.opts.statsFilename);
     mkdir.sync(path.dirname(statsFilepath));
-
+    let err;
     try {
-      await bfj.write(statsFilepath, stats, {
-        space: 2,
-        promises: 'ignore',
-        buffers: 'ignore',
-        maps: 'ignore',
-        iterables: 'ignore',
-        circular: 'ignore'
-      });
+      await Promise.resolve(stats)
+        .then(() => {
+          // Handle errors.
+          if (err) {
+            curCompiler.errors.push(err);
+            throw err;
+          }
+
+          // Add to assets.
+          curCompiler.assets[this.opts.statsFilename] = {
+            source() {
+              return stats;
+            },
+            size() {
+              return stats.length;
+            }
+          };
+        });
 
       this.logger.info(
         `${bold('Webpack Bundle Analyzer')} saved stats file to ${bold(statsFilepath)}`

@@ -19,6 +19,7 @@ const assetsRoot = path.join(projectRoot, 'public');
 module.exports = {
   startServer,
   generateReport,
+  getChartData,
   // deprecated
   start: startServer
 };
